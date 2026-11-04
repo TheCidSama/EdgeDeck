@@ -3,24 +3,36 @@ import CTouch
 
 /// Turns raw trackpad touches into edge actions:
 /// - a double tap (or double click) on a filled edge slot runs that slot; its clicks are swallowed;
-/// - a vertical slide that starts on an edge changes brightness (left) or volume (right).
+/// - a double tap on the top-right corner mutes;
+/// - a vertical slide that starts on a side edge changes brightness (left) or volume (right);
+/// - a horizontal slide that starts on the top (or bottom) edge switches apps.
 final class Engine {
     static let shared = Engine()
 
-    struct Zone: Equatable {
-        let side: Side
-        let slot: Int
+    enum Zone: Equatable {
+        case slot(Side, Int)
+        case muteCorner
     }
 
     private struct Geometry {
         var width: Float = 0.15
+        var top: Float = 0       // depth of the top strip, 0 when it's off
+        var bottom: Float = 0    // depth of the bottom strip, 0 when it's off
         var slots = 3
         var enabled = true
         var gestures = true
+        var switchTop = true     // which strip switches apps (neither when it's off)
+        var switchBottom = false
+        var mute = true
         var filled = Set<Int>()
         var doubleTap: TimeInterval = 0.5
 
-        func isFilled(_ z: Zone) -> Bool { filled.contains(z.side.rawValue * Settings.maxSlots + z.slot) }
+        func isFilled(_ z: Zone) -> Bool {
+            switch z {
+            case .slot(let side, let slot): filled.contains(side.rawValue * Settings.maxSlots + slot)
+            case .muteCorner: mute
+            }
+        }
     }
 
     // Trackpad distance (0...1 of its height) per volume/brightness step.
@@ -32,6 +44,8 @@ final class Engine {
     private let tapMaxMove: Float = 0.04
     private let tapMaxDuration = 0.35
     private let tapClickDelay = 0.4
+    // Trackpad distance (0...1 of its width) per app while switching.
+    private let switchStep: Float = 0.06
 
     // Shared between the multitouch thread and the main thread.
     private let lock = NSLock()
@@ -51,6 +65,9 @@ final class Engine {
     private var slideSide: Side?
     private var sliding = false
     private var lastStepY: Float = 0
+    private var switchFrom = false   // started on the switcher strip, so a horizontal slide switches apps
+    private var switching = false
+    private var lastStepX: Float = 0
     private var cursor = CGPoint.zero
     private var waitForLift = false
     private var lastHit: (zone: Zone, at: TimeInterval)?
@@ -78,7 +95,10 @@ final class Engine {
     /// Call after changing Settings.
     func reload() {
         let s = Settings.shared
-        var g = Geometry(width: Float(s.edgeWidth), slots: s.slotsPerSide, enabled: s.enabled, gestures: s.gestures)
+        var g = Geometry(width: Float(s.edgeWidth), top: Float(s.topDepth), bottom: Float(s.bottomDepth), slots: s.slotsPerSide,
+                         enabled: s.enabled, gestures: s.gestures,
+                         switchTop: s.appSwitcher && s.switcherEdge == .top, switchBottom: s.appSwitcher && s.switcherEdge == .bottom,
+                         mute: s.muteCorner)
         g.doubleTap = NSEvent.doubleClickInterval
         for side in Side.allCases {
             for slot in 0..<g.slots where s.item(side, slot) != nil {
@@ -123,8 +143,10 @@ final class Engine {
             startTime = now
             moved = false
             sliding = false
+            switching = false
             startZone = zone(t.x, t.y, g)
-            slideSide = g.gestures ? startZone?.side : nil
+            slideSide = g.gestures ? side(t.x, g) : nil
+            switchFrom = (g.switchTop && t.y > 1 - g.top) || (g.switchBottom && t.y < g.bottom)
             cursor = CGEvent(source: nil)?.location ?? .zero
             let filled = startZone.flatMap { g.isFilled($0) ? $0 : nil }
             locked {
@@ -141,28 +163,46 @@ final class Engine {
             locked { pressed = nil }
         }
 
-        guard let side = slideSide else { return }
-        let insideStrip = side == .left ? t.x < g.width + slideExitMargin : t.x > 1 - g.width - slideExitMargin
-        guard insideStrip else {
-            // Left the edge: the rest of this touch moves the cursor normally.
-            slideSide = nil
-            sliding = false
+        if switching {
+            holdCursor()
+            var steps = 0
+            while t.x - lastStepX >= switchStep { lastStepX += switchStep; steps += 1 }
+            while lastStepX - t.x >= switchStep { lastStepX -= switchStep; steps -= 1 }
+            if steps != 0 { DispatchQueue.main.async { AppSwitcher.move(by: steps) } }
             return
         }
+
+        if let side = slideSide {
+            let insideStrip = side == .left ? t.x < g.width + slideExitMargin : t.x > 1 - g.width - slideExitMargin
+            if !insideStrip {
+                // Left the edge: no more volume/brightness for this touch.
+                slideSide = nil
+                sliding = false
+            }
+        }
+
         if !sliding {
-            if abs(dy) < slideStart {
-                if abs(dx) > slideStart { slideSide = nil } // moving the cursor out of the edge
+            // Decide once the finger has moved far enough: sideways on the switcher strip switches apps,
+            // up/down on a side edge changes the level, anything else is normal cursor movement.
+            guard max(abs(dx), abs(dy)) >= slideStart else { return }
+            if switchFrom && abs(dx) > abs(dy) {
+                switching = true
+                slideSide = nil
+                lastStepX = t.x
+                let first = dx > 0 ? 1 : -1
+                DispatchQueue.main.async { AppSwitcher.begin(); AppSwitcher.move(by: first) }
+                holdCursor()
                 return
             }
+            switchFrom = false
             // Loose check: on the very edge the reported x drifts inward while sliding.
-            guard abs(dy) > abs(dx) else { slideSide = nil; return }
+            guard slideSide != nil, abs(dy) > abs(dx) else { slideSide = nil; return }
             sliding = true
             lastStepY = startY
         }
+        guard let side = slideSide else { return }
 
-        // Keep the cursor still while sliding.
-        CGWarpMouseCursorPosition(cursor)
-        CGAssociateMouseAndMouseCursorPosition(1) // removes the short freeze after a warp
+        holdCursor()
 
         var steps = 0
         while t.y - lastStepY >= stepDistance { lastStepY += stepDistance; steps += 1 }
@@ -174,8 +214,20 @@ final class Engine {
         }
     }
 
+    /// Keeps the cursor still while a slide drives something else.
+    private func holdCursor() {
+        CGWarpMouseCursorPosition(cursor)
+        CGAssociateMouseAndMouseCursorPosition(1) // removes the short freeze after a warp
+    }
+
     private func endTouch(_ now: TimeInterval, lifted: Bool, _ g: Geometry) {
         guard fingerID != -1 else { return }
+        if switching {
+            // Lifting picks the highlighted app; a second finger landing cancels.
+            DispatchQueue.main.async { lifted ? AppSwitcher.commit() : AppSwitcher.cancel() }
+            switching = false
+        }
+        switchFrom = false
         let still = lifted && !moved && !sliding
         let quick = now - startTime < tapMaxDuration
         let filled = startZone.flatMap { g.isFilled($0) ? $0 : nil }
@@ -204,11 +256,21 @@ final class Engine {
         }
     }
 
+    private func side(_ x: Float, _ g: Geometry) -> Side? {
+        x < g.width ? .left : x > 1 - g.width ? .right : nil
+    }
+
+    /// The tap target under a point. The top strip only has the mute corner, the bottom strip has none;
+    /// the side slots sit between them.
     private func zone(_ x: Float, _ y: Float, _ g: Geometry) -> Zone? {
-        let side: Side
-        if x < g.width { side = .left } else if x > 1 - g.width { side = .right } else { return nil }
-        let slot = min(g.slots - 1, max(0, Int((1 - y) * Float(g.slots))))
-        return Zone(side: side, slot: slot)
+        if g.top > 0, y > 1 - g.top {
+            return g.mute && x > 1 - g.width ? .muteCorner : nil
+        }
+        if y < g.bottom { return nil }
+        guard let side = side(x, g) else { return nil }
+        let span = 1 - g.top - g.bottom
+        let slot = min(g.slots - 1, max(0, Int((1 - g.top - y) / span * Float(g.slots))))
+        return .slot(side, slot)
     }
 
     // MARK: Clicks (main thread)

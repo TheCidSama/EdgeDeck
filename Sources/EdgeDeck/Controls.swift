@@ -22,6 +22,14 @@ enum Controls {
         NotchDrop.showLevel(side, muted && !unmutes ? 0 : target)
     }
 
+    /// Mutes or unmutes the default output and shows the result on the notch.
+    static func toggleMute() {
+        guard let device = outputDevice() else { return }
+        setMuted(device, !isMuted())
+        Haptics.thump()
+        NotchDrop.showLevel(.right, isMuted() ? 0 : level(.right) ?? 0)
+    }
+
     private static func next(_ value: Float, _ direction: Int) -> Float {
         min(1, max(0, ((value * levels).rounded() + Float(direction)) / levels))
     }
@@ -91,7 +99,11 @@ enum Controls {
 /// Runs what is in a slot. Main thread only.
 enum Actions {
     static func perform(_ zone: Engine.Zone) {
-        guard let item = Settings.shared.item(zone.side, zone.slot) else { return }
+        guard case .slot(let side, let slot) = zone else {
+            Controls.toggleMute()
+            return
+        }
+        guard let item = Settings.shared.item(side, slot) else { return }
         switch item {
         case .app(let path):
             Haptics.thump()
@@ -100,7 +112,7 @@ enum Actions {
             if Windows.focus(pid: pid, id: id) {
                 Haptics.thump()
             } else {
-                Settings.shared.setItem(nil, zone.side, zone.slot) // the window is gone
+                Settings.shared.setItem(nil, side, slot) // the window is gone
             }
         case .wifi:
             Radios.toggleWiFi()

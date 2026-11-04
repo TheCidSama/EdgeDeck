@@ -25,16 +25,19 @@
 
 ## What it does
 
-The middle of your trackpad stays a normal trackpad. The left and right edges become a deck:
+The middle of your trackpad stays a normal trackpad. Its edges become a deck:
 
 | On the trackpad | What happens |
 | --- | --- |
 | **Double-tap** a slot on either edge | Runs that slot: opens an app, brings a window to the front, or toggles Wi-Fi / Bluetooth |
 | **Slide up/down** on the **left** edge | Brightness, in 16 steps like the keyboard keys |
 | **Slide up/down** on the **right** edge | Volume (sliding up also unmutes) |
+| **Slide left/right** along the **top** edge | Switch apps: a bar of your open apps appears in the middle of the screen, the highlight follows your finger, and lifting switches to that app |
+| **Double-tap** the **top-right corner** | Mute / unmute |
 
 - **3 or 4 slots per edge**, stacked top to bottom.
 - **Adjustable edge width**, from 8% to 15% of the trackpad on each side.
+- **App switching on the top or bottom edge**, your choice (or off). It brings back hidden and minimized apps too, like clicking their Dock icon.
 - **Haptic feedback** from the trackpad itself: a tick per step, a firmer tap when something opens. At 0% or 100% the ticks stop, so you can feel the limit.
 - **Window slots**: pick any open window (say, one of three Terminal windows) and double-tap to jump straight to it. When that window closes, its slot empties itself.
 - **Wi-Fi and Bluetooth toggles** that show their new state on the notch.
@@ -87,7 +90,7 @@ To keep it, move `build/EdgeDeck.app` to `/Applications` and turn on **Open at l
 | **Accessibility** | Window slots (listing, focusing and watching windows) and keeping slot taps from clicking the app underneath |
 | **Bluetooth** | The Bluetooth toggle (asked the first time you use it) |
 
-Apps, Wi-Fi, brightness, volume, haptics and the notch display work without any permission.
+Apps, Wi-Fi, brightness, volume, mute, app switching, haptics and the notch display work without any permission.
 
 > **Rebuilt the app?** The build is signed ad hoc, so macOS treats every rebuild as a new app. Remove EdgeDeck from **System Settings → Privacy & Security → Accessibility** and add it again.
 
@@ -101,6 +104,7 @@ Apps, Wi-Fi, brightness, volume, haptics and the notch display work without any 
 | Volume | CoreAudio, on the default output device |
 | Wi-Fi / Bluetooth | CoreWLAN / IOBluetooth |
 | Windows | The Accessibility API, plus an `AXObserver` that notices when a window closes |
+| App switcher | Apps in front-to-back order from the window list, shown in a blurred panel that only exists while you slide |
 | Notch display | A borderless panel with Core Animation springs, only on screen while it's showing |
 
 Because EdgeDeck uses private Apple frameworks (the same ones tools like BetterTouchTool rely on), it can't ship on the Mac App Store, and a future macOS update could break parts of it.
@@ -113,6 +117,7 @@ Sources/EdgeDeck/
   Engine.swift           Edge zones, double-tap detection, slides
   Controls.swift         Volume, brightness, slot actions, Wi-Fi/Bluetooth, haptics
   Windows.swift          Listing, focusing and watching windows
+  AppSwitcher.swift      The app switcher bar
   NotchDrop.swift        The notch display
   SettingsWindow.swift   Settings window and trackpad drawing
   Settings.swift         Preferences

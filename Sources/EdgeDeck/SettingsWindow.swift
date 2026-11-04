@@ -81,7 +81,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         let hint = NSTextField(wrappingLabelWithString:
             "Click a slot to put an app, an open window, Wi-Fi or Bluetooth in it; right-click to clear it. "
             + "On the trackpad, double-tap a slot to use it.\n"
-            + "Slide up or down on the left edge for brightness, on the right edge for volume.")
+            + "Slide up or down on the left edge for brightness, on the right edge for volume. "
+            + "Slide along the top or bottom edge to switch apps, and double-tap the top-right corner to mute.")
         hint.textColor = Theme.dim
         hint.font = .systemFont(ofSize: 12)
         hint.preferredMaxLayoutWidth = 512
@@ -100,14 +101,21 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         haptics.state = s.haptics ? .on : .off
         let gestures = NSButton(checkboxWithTitle: "Slide on edges for brightness and volume", target: self, action: #selector(gesturesChanged))
         gestures.state = s.gestures ? .on : .off
+        let switcher = NSSegmentedControl(labels: ["Off", "Top edge", "Bottom edge"], trackingMode: .selectOne,
+                                          target: self, action: #selector(switcherChanged))
+        switcher.selectedSegment = !s.appSwitcher ? 0 : s.switcherEdge == .top ? 1 : 2
+        let mute = NSButton(checkboxWithTitle: "Double-tap the top-right corner to mute", target: self, action: #selector(muteChanged))
+        mute.state = s.muteCorner ? .on : .off
         let login = NSButton(checkboxWithTitle: "Open at login", target: self, action: #selector(loginChanged))
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
 
         let grid = NSGridView(views: [
             [label("Edge width:"), NSStackView(views: [slider, widthLabel])],
             [label("Each edge:"), slots],
+            [label("Switch apps:"), switcher],
             [NSGridCell.emptyContentView, haptics],
             [NSGridCell.emptyContentView, gestures],
+            [NSGridCell.emptyContentView, mute],
             [NSGridCell.emptyContentView, login],
         ])
         grid.column(at: 0).xPlacement = .trailing
@@ -230,6 +238,19 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         Engine.shared.reload()
     }
 
+    @objc private func switcherChanged(_ sender: NSSegmentedControl) {
+        Settings.shared.appSwitcher = sender.selectedSegment != 0
+        if sender.selectedSegment != 0 { Settings.shared.switcherEdge = sender.selectedSegment == 1 ? .top : .bottom }
+        Engine.shared.reload()
+        pad.needsDisplay = true
+    }
+
+    @objc private func muteChanged(_ sender: NSButton) {
+        Settings.shared.muteCorner = sender.state == .on
+        Engine.shared.reload()
+        pad.needsDisplay = true
+    }
+
     @objc private func loginChanged(_ sender: NSButton) {
         do {
             if sender.state == .on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
@@ -287,12 +308,25 @@ final class PadView: NSView {
         return NSRect(x: side == .left ? r.minX : r.maxX - w, y: r.minY, width: w, height: r.height)
     }
 
+    /// The top strip (app switching and/or the mute corner); empty when it has nothing to do.
+    private var topRect: NSRect {
+        let r = padRect, h = (r.height * CGFloat(Settings.shared.topDepth)).rounded()
+        return NSRect(x: r.minX, y: r.maxY - h, width: r.width, height: h)
+    }
+
+    /// The bottom strip (app switching, when it's on the bottom edge).
+    private var bottomRect: NSRect {
+        let r = padRect, h = (r.height * CGFloat(Settings.shared.bottomDepth)).rounded()
+        return NSRect(x: r.minX, y: r.minY, width: r.width, height: h)
+    }
+
     private func slotRect(_ side: Side, _ slot: Int) -> NSRect {
         let s = Settings.shared, r = padRect
         let w = (r.width * CGFloat(s.edgeWidth)).rounded()
-        let h = r.height / CGFloat(s.slotsPerSide)
+        let top = topRect.height
+        let h = (r.height - top - bottomRect.height) / CGFloat(s.slotsPerSide)
         let x = side == .left ? r.minX : r.maxX - w
-        return NSRect(x: x, y: r.maxY - h * CGFloat(slot + 1), width: w, height: h)
+        return NSRect(x: x, y: r.maxY - top - h * CGFloat(slot + 1), width: w, height: h)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -300,11 +334,14 @@ final class PadView: NSView {
         let radius: CGFloat = 16
         let body = NSBezierPath(roundedRect: r, xRadius: radius, yRadius: radius)
 
-        // Halo: blurred blue strips behind the pad, so the glow spills out of its sides.
-        for side in Side.allCases {
+        // Halo: blurred blue strips behind the pad, so the glow spills out of its sides (and top/bottom).
+        let top = topRect, bottom = bottomRect
+        let across = [top, bottom].filter { $0.height > 0 }
+        for strip in Side.allCases.map(stripRect) + across {
+            let wide = across.contains(strip)
             withShadow(Theme.blue.withAlphaComponent(0.9), blur: 26) {
                 Theme.blue.withAlphaComponent(0.55).setFill()
-                NSBezierPath(roundedRect: stripRect(side).insetBy(dx: 2, dy: 6), xRadius: radius, yRadius: radius).fill()
+                NSBezierPath(roundedRect: strip.insetBy(dx: wide ? 8 : 2, dy: wide ? 2 : 6), xRadius: radius, yRadius: radius).fill()
             }
         }
 
@@ -328,6 +365,8 @@ final class PadView: NSView {
             wash?.draw(in: halo, angle: side == .left ? 0 : 180)
             for slot in 0..<Settings.shared.slotsPerSide { drawSlot(side, slot) }
         }
+        if top.height > 0 { drawAcross(top, atTop: true) }
+        if bottom.height > 0 { drawAcross(bottom, atTop: false) }
 
         let middle = NSAttributedString(string: "NORMAL TRACKPAD", attributes: [
             .font: NSFont.systemFont(ofSize: 11, weight: .semibold), .kern: 2,
@@ -348,6 +387,35 @@ final class PadView: NSView {
         NSColor(white: 1, alpha: 0.10).setStroke()
         body.lineWidth = 1
         body.stroke()
+    }
+
+    /// A strip across the top or bottom: a wash fading into the pad, the switcher hint, and (top) the mute corner.
+    private func drawAcross(_ strip: NSRect, atTop: Bool) {
+        let s = Settings.shared, fade: CGFloat = 50
+        let halo = NSRect(x: strip.minX, y: atTop ? strip.minY - fade : strip.minY, width: strip.width, height: strip.height + fade)
+        let end = strip.height / halo.height
+        NSGradient(colors: [0.32, 0.12, 0.04, 0].map { Theme.blue.withAlphaComponent($0) },
+                   atLocations: [0, end, end + (1 - end) * 0.45, 1], colorSpace: .sRGB)?.draw(in: halo, angle: atTop ? -90 : 90)
+
+        let hasMute = atTop && s.muteCorner
+        let corner = NSRect(x: stripRect(.right).minX, y: strip.minY, width: stripRect(.right).width, height: strip.height)
+        if s.appSwitcher, (s.switcherEdge == .top) == atTop {
+            let label = NSAttributedString(string: "←  SLIDE TO SWITCH APPS  →", attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .semibold), .kern: 1.5, .foregroundColor: Theme.blue.withAlphaComponent(0.95),
+            ])
+            let size = label.size(), right = hasMute ? corner.minX : strip.maxX
+            label.draw(at: NSPoint(x: (strip.minX + right) / 2 - size.width / 2, y: strip.midY - size.height / 2))
+        }
+        if hasMute {
+            let rect = corner.insetBy(dx: 5, dy: 4)
+            NSColor(white: 0, alpha: 0.4).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 10, yRadius: 10).fill()
+            let iconSide = min(rect.height - 8, 18)
+            let icon = NSRect(x: rect.midX - iconSide - 2, y: rect.midY - iconSide / 2, width: iconSide, height: iconSide)
+            Glyphs.draw(Glyphs.symbol("speaker.slash.fill"), in: icon, color: Theme.text)
+            let text = NSAttributedString(string: "Mute", attributes: [.font: NSFont.systemFont(ofSize: 10, weight: .medium), .foregroundColor: Theme.text])
+            text.draw(at: NSPoint(x: icon.maxX + 4, y: rect.midY - text.size().height / 2))
+        }
     }
 
     private func withShadow(_ color: NSColor, blur: CGFloat, _ draw: () -> Void) {

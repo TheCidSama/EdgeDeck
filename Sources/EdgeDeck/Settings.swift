@@ -58,6 +58,30 @@ final class Settings {
         set { d.set(newValue, forKey: "gestures") }
     }
 
+    /// Slide left/right along the top (or bottom) edge to switch apps.
+    var appSwitcher: Bool {
+        get { bool("appSwitcher", true) }
+        set { d.set(newValue, forKey: "appSwitcher") }
+    }
+
+    enum SwitcherEdge: String { case top, bottom }
+
+    var switcherEdge: SwitcherEdge {
+        get { SwitcherEdge(rawValue: d.string(forKey: "switcherEdge") ?? "") ?? .top }
+        set { d.set(newValue.rawValue, forKey: "switcherEdge") }
+    }
+
+    /// Double-tap the top-right corner to mute.
+    var muteCorner: Bool {
+        get { bool("muteCorner", true) }
+        set { d.set(newValue, forKey: "muteCorner") }
+    }
+
+    /// Depth of the top and bottom strips as a fraction of the trackpad height, or 0 when they have nothing to do.
+    /// They follow the edge width so one slider sets every edge; the side slots sit between them.
+    var topDepth: Double { (appSwitcher && switcherEdge == .top) || muteCorner ? edgeWidth : 0 }
+    var bottomDepth: Double { appSwitcher && switcherEdge == .bottom ? edgeWidth : 0 }
+
     /// The item in a slot (0 = top), or nil if empty.
     func item(_ side: Side, _ slot: Int) -> SlotItem? {
         let list = items(side)
