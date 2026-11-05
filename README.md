@@ -7,7 +7,7 @@
 <p align="center">
   <b>Turn your MacBook trackpad's edges into a Stream Deck.</b><br>
   Double-tap an edge to open apps, jump to windows or flip Wi-Fi and Bluetooth.<br>
-  Slide along the edges for brightness and volume, with haptic ticks and a live notch display.
+  Slide two fingers along the edges for brightness and volume, with haptic ticks and a live notch display.
 </p>
 
 <p align="center">
@@ -30,8 +30,8 @@ The middle of your trackpad stays a normal trackpad. Its edges become a deck:
 | On the trackpad | What happens |
 | --- | --- |
 | **Double-tap** a slot on either edge | Runs that slot: opens an app, brings a window to the front, or toggles Wi-Fi / Bluetooth |
-| **Slide up/down** on the **left** edge | Brightness, in 16 steps like the keyboard keys |
-| **Slide up/down** on the **right** edge | Volume (sliding up also unmutes) |
+| **Two-finger slide up/down** on the **left** edge | Brightness, in 16 steps like the keyboard keys |
+| **Two-finger slide up/down** on the **right** edge | Volume (sliding up also unmutes) |
 | **Slide left/right** along the **top** edge | Switch apps: a bar of your open apps appears in the middle of the screen, the highlight follows your finger, and lifting switches to that app |
 | **Double-tap** the **top-right corner** | Mute / unmute |
 
@@ -42,7 +42,8 @@ The middle of your trackpad stays a normal trackpad. Its edges become a deck:
 - **Window slots**: pick any open window (say, one of three Terminal windows) and double-tap to jump straight to it. When that window closes, its slot empties itself.
 - **Wi-Fi and Bluetooth toggles** that show their new state on the notch.
 - **No stray clicks**: taps on a filled slot never reach the app under your cursor.
-- **Smart about gestures**: two-finger scrolls and other multi-finger gestures are left alone, and a slide stops the moment your finger leaves the edge.
+- **No accidental launches**: only a quick double-tap counts (each tap under 0.2 s, the second within 0.25 s), so resting or brushing a finger on an edge does nothing.
+- **Smart about gestures**: the window under your cursor doesn't scroll while you change the volume, two-finger scrolls in the middle and other gestures are left alone, and a slide stops the moment your fingers leave the edge.
 
 ## The notch
 
@@ -87,7 +88,7 @@ To keep it, move `build/EdgeDeck.app` to `/Applications` and turn on **Open at l
 
 | Permission | Needed for |
 | --- | --- |
-| **Accessibility** | Window slots (listing, focusing and watching windows) and keeping slot taps from clicking the app underneath |
+| **Accessibility** | Window slots (listing, focusing and watching windows), keeping slot taps from clicking the app underneath, and keeping edge slides from scrolling it |
 | **Bluetooth** | The Bluetooth toggle (asked the first time you use it) |
 
 Apps, Wi-Fi, brightness, volume, mute, app switching, haptics and the notch display work without any permission.

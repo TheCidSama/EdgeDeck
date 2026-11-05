@@ -81,7 +81,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         let hint = NSTextField(wrappingLabelWithString:
             "Click a slot to put an app, an open window, Wi-Fi or Bluetooth in it; right-click to clear it. "
             + "On the trackpad, double-tap a slot to use it.\n"
-            + "Slide up or down on the left edge for brightness, on the right edge for volume. "
+            + "Slide up or down with two fingers on the left edge for brightness, on the right edge for volume. "
             + "Slide along the top or bottom edge to switch apps, and double-tap the top-right corner to mute.")
         hint.textColor = Theme.dim
         hint.font = .systemFont(ofSize: 12)
@@ -99,7 +99,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
         let haptics = NSButton(checkboxWithTitle: "Haptic feedback", target: self, action: #selector(hapticsChanged))
         haptics.state = s.haptics ? .on : .off
-        let gestures = NSButton(checkboxWithTitle: "Slide on edges for brightness and volume", target: self, action: #selector(gesturesChanged))
+        let gestures = NSButton(checkboxWithTitle: "Two-finger slide on the side edges for brightness and volume", target: self, action: #selector(gesturesChanged))
         gestures.state = s.gestures ? .on : .off
         let switcher = NSSegmentedControl(labels: ["Off", "Top edge", "Bottom edge"], trackingMode: .selectOne,
                                           target: self, action: #selector(switcherChanged))
@@ -123,7 +123,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         grid.columnSpacing = 12
         let card = Card(content: grid)
 
-        let warning = NSTextField(labelWithString: "Window slots and click blocking need Accessibility access.")
+        let warning = NSTextField(labelWithString: "Window slots, click and scroll blocking need Accessibility access.")
         warning.textColor = .systemOrange
         let grant = NSButton(title: "Open Settings…", target: self, action: #selector(openAccessibility))
         accessRow.setViews([warning, grant], in: .leading)

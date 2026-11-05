@@ -52,7 +52,7 @@ final class Settings {
         set { d.set(newValue, forKey: "haptics") }
     }
 
-    /// Slide on the left edge for brightness, on the right edge for volume.
+    /// Two-finger slide on the left edge for brightness, on the right edge for volume.
     var gestures: Bool {
         get { bool("gestures", true) }
         set { d.set(newValue, forKey: "gestures") }
